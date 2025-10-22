@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Plus, User, Clock, AlertCircle, ChevronDown, ChevronUp, Check, LogOut, CheckCircle, Calendar, TrendingUp, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Plus, User, Clock, AlertCircle, ChevronDown, ChevronUp, Check, LogOut, CheckCircle, Calendar, TrendingUp, Settings, ChevronLeft, ChevronRight, X, Upload, FileText, Download, Trash2, Clipboard } from 'lucide-react'
 
 export default function FabShopTracker() {
   const [user, setUser] = useState(null)
@@ -14,20 +14,23 @@ export default function FabShopTracker() {
   const [showAddProject, setShowAddProject] = useState(false)
   const [showFabSettings, setShowFabSettings] = useState(false)
   const [expandedProjects, setExpandedProjects] = useState(new Set())
-  const [activeTab, setActiveTab] = useState('active')
+  const [activeTab, setActiveTab] = useState('queue')
   const [newFabName, setNewFabName] = useState('')
   const [currentWeekStart, setCurrentWeekStart] = useState(getWeekStart(new Date()))
+  const [uploadingFiles, setUploadingFiles] = useState(false)
   const router = useRouter()
 
   const [newProject, setNewProject] = useState({
     project_name: '',
     customer_name: '',
-    assigned_to: '',
+    assigned_to: 'Unassigned',
     hours_allocated: '',
+    start_date: '',
     deadline: '',
     priority: 'Medium',
     notes: '',
-    project_type: 'Welding'
+    project_type: 'Welding',
+    attachments: []
   })
 
   function getWeekStart(date) {
@@ -128,8 +131,49 @@ export default function FabShopTracker() {
     }
   }
 
+  const handleFileUpload = async (files) => {
+    setUploadingFiles(true)
+    const uploadedFiles = []
+
+    for (const file of files) {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${Math.random()}.${fileExt}`
+      const filePath = `${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('project-attachments')
+        .upload(filePath, file)
+
+      if (!uploadError) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('project-attachments')
+          .getPublicUrl(filePath)
+
+        uploadedFiles.push({
+          name: file.name,
+          url: publicUrl,
+          path: filePath,
+          size: file.size,
+          type: file.type
+        })
+      }
+    }
+
+    setNewProject({
+      ...newProject,
+      attachments: [...(newProject.attachments || []), ...uploadedFiles]
+    })
+    setUploadingFiles(false)
+  }
+
+  const removeAttachment = (index) => {
+    const newAttachments = [...newProject.attachments]
+    newAttachments.splice(index, 1)
+    setNewProject({ ...newProject, attachments: newAttachments })
+  }
+
   const addProject = async () => {
-    if (newProject.project_name && newProject.assigned_to && newProject.hours_allocated && newProject.deadline) {
+    if (newProject.project_name && newProject.hours_allocated && newProject.start_date && newProject.deadline) {
       const { error } = await supabase
         .from('projects')
         .insert([{
@@ -138,7 +182,8 @@ export default function FabShopTracker() {
           hours_used: 0,
           progress_percent: 0,
           hours_allocated: parseInt(newProject.hours_allocated),
-          milestones: []
+          milestones: [],
+          attachments: newProject.attachments || []
         }])
       
       if (error) {
@@ -147,12 +192,14 @@ export default function FabShopTracker() {
         setNewProject({
           project_name: '',
           customer_name: '',
-          assigned_to: '',
+          assigned_to: 'Unassigned',
           hours_allocated: '',
+          start_date: '',
           deadline: '',
           priority: 'Medium',
           notes: '',
-          project_type: 'Welding'
+          project_type: 'Welding',
+          attachments: []
         })
         setShowAddProject(false)
         fetchProjects()
@@ -169,6 +216,10 @@ export default function FabShopTracker() {
     if (error) {
       console.error('Error updating project:', error)
     }
+  }
+
+  const assignProject = async (projectId, fabricatorName) => {
+    await updateProject(projectId, { assigned_to: fabricatorName })
   }
 
   const markComplete = async (id) => {
@@ -233,10 +284,24 @@ export default function FabShopTracker() {
   }
 
   const isProjectInWeek = (project, weekStart) => {
+    const startDate = new Date(project.start_date)
     const deadline = new Date(project.deadline)
     const weekEnd = new Date(weekStart)
     weekEnd.setDate(weekStart.getDate() + 6)
-    return deadline >= weekStart && deadline <= weekEnd
+    
+    return (startDate <= weekEnd && deadline >= weekStart)
+  }
+
+  const isProjectOnDay = (project, day) => {
+    const startDate = new Date(project.start_date)
+    const deadline = new Date(project.deadline)
+    const checkDay = new Date(day)
+    
+    startDate.setHours(0, 0, 0, 0)
+    deadline.setHours(0, 0, 0, 0)
+    checkDay.setHours(0, 0, 0, 0)
+    
+    return checkDay >= startDate && checkDay <= deadline
   }
 
   const getFabricatorWorkload = (fabricatorName, weekStart) => {
@@ -263,7 +328,8 @@ export default function FabShopTracker() {
     )
   }
 
-  const activeProjects = projects.filter(p => p.status !== 'Completed')
+  const unassignedProjects = projects.filter(p => p.assigned_to === 'Unassigned' && p.status !== 'Completed')
+  const activeProjects = projects.filter(p => p.status !== 'Completed' && p.assigned_to !== 'Unassigned')
   const completedProjects = projects.filter(p => p.status === 'Completed')
 
   const filteredActive = selectedFabricator === 'all' 
@@ -290,11 +356,23 @@ export default function FabShopTracker() {
     return new Date(b.completed_at || b.updated_at) - new Date(a.completed_at || a.updated_at)
   })
 
+  const sortedUnassigned = [...unassignedProjects].sort((a, b) => {
+    const priorityOrder = { 'High': 0, 'Medium': 1, 'Low': 2 }
+    if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+      return priorityOrder[a.priority] - priorityOrder[b.priority]
+    }
+    return new Date(a.deadline) - new Date(b.deadline)
+  })
+
   const upNextProjects = sortedActive.slice(0, 3)
-  const displayProjects = activeTab === 'active' ? sortedActive : sortedCompleted
   const weekDays = getWeekDays(currentWeekStart)
 
+  const displayProjects = activeTab === 'active' ? sortedActive : 
+                         activeTab === 'completed' ? sortedCompleted :
+                         sortedUnassigned
+
   const stats = {
+    unassigned: unassignedProjects.length,
     active: activeProjects.length,
     completed: completedProjects.length,
     overdue: activeProjects.filter(p => getDaysUntilDeadline(p.deadline) < 0).length,
@@ -363,7 +441,16 @@ export default function FabShopTracker() {
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-4 mt-6">
+          <div className="grid grid-cols-5 gap-4 mt-6">
+            <div className="bg-orange-50 rounded-lg p-4 border-l-4 border-orange-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Unassigned</p>
+                  <p className="text-3xl font-bold text-orange-600">{stats.unassigned}</p>
+                </div>
+                <Clipboard size={32} className="text-orange-500" />
+              </div>
+            </div>
             <div className="bg-blue-50 rounded-lg p-4 border-l-4" style={{ borderColor: '#2b388f' }}>
               <div className="flex items-center justify-between">
                 <div>
@@ -470,6 +557,7 @@ export default function FabShopTracker() {
               {upNextProjects.map((project, idx) => {
                 const daysLeft = getDaysUntilDeadline(project.deadline)
                 const urgency = getProjectUrgency(project)
+                const duration = Math.ceil((new Date(project.deadline) - new Date(project.start_date)) / (1000 * 60 * 60 * 24)) + 1
                 return (
                   <div key={project.id} className="bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between mb-2">
@@ -486,6 +574,7 @@ export default function FabShopTracker() {
                     <h3 className="font-bold text-gray-900 mb-1">{project.project_name}</h3>
                     <p className="text-sm text-gray-600 mb-2">{project.assigned_to}</p>
                     <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>{duration} day{duration > 1 ? 's' : ''}</span>
                       <span>{project.hours_used}/{project.hours_allocated}h</span>
                       <span className={getPriorityColor(project.priority)}>{project.priority}</span>
                     </div>
@@ -515,16 +604,6 @@ export default function FabShopTracker() {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
               />
               <select
-                value={newProject.assigned_to}
-                onChange={(e) => setNewProject({...newProject, assigned_to: e.target.value})}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
-              >
-                <option value="">Assign to... *</option>
-                {fabricators.map(fab => (
-                  <option key={fab.id} value={fab.name}>{fab.name}</option>
-                ))}
-              </select>
-              <select
                 value={newProject.project_type}
                 onChange={(e) => setNewProject({...newProject, project_type: e.target.value})}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
@@ -542,12 +621,24 @@ export default function FabShopTracker() {
                 onChange={(e) => setNewProject({...newProject, hours_allocated: e.target.value})}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
               />
-              <input
-                type="date"
-                value={newProject.deadline}
-                onChange={(e) => setNewProject({...newProject, deadline: e.target.value})}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date *</label>
+                <input
+                  type="date"
+                  value={newProject.start_date}
+                  onChange={(e) => setNewProject({...newProject, start_date: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">End Date (Deadline) *</label>
+                <input
+                  type="date"
+                  value={newProject.deadline}
+                  onChange={(e) => setNewProject({...newProject, deadline: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                />
+              </div>
               <select
                 value={newProject.priority}
                 onChange={(e) => setNewProject({...newProject, priority: e.target.value})}
@@ -565,13 +656,63 @@ export default function FabShopTracker() {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
               />
             </div>
+            
+            {/* File Upload Section */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Attachments (Drawings, Specifications, etc.)
+              </label>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.jpg,.jpeg,.png,.dwg"
+                  onChange={(e) => handleFileUpload(Array.from(e.target.files))}
+                  className="hidden"
+                  id="file-upload"
+                  disabled={uploadingFiles}
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="cursor-pointer flex flex-col items-center gap-2"
+                >
+                  <Upload size={32} className="text-gray-400" />
+                  <span className="text-sm text-gray-600">
+                    {uploadingFiles ? 'Uploading...' : 'Click to upload or drag and drop'}
+                  </span>
+                  <span className="text-xs text-gray-500">PDF, JPG, PNG, DWG up to 10MB each</span>
+                </label>
+              </div>
+              
+              {newProject.attachments && newProject.attachments.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {newProject.attachments.map((file, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <FileText size={20} className="text-gray-600" />
+                        <span className="text-sm font-medium">{file.name}</span>
+                        <span className="text-xs text-gray-500">({(file.size / 1024).toFixed(1)} KB)</span>
+                      </div>
+                      <button
+                        onClick={() => removeAttachment(idx)}
+                        className="text-red-600 hover:bg-red-50 p-2 rounded"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3">
               <button
                 onClick={addProject}
                 className="px-6 py-2 text-white rounded-lg hover:opacity-90 transition-all"
                 style={{ backgroundColor: '#2b388f' }}
+                disabled={uploadingFiles}
               >
-                Create Project
+                {uploadingFiles ? 'Uploading Files...' : 'Create Project'}
               </button>
               <button
                 onClick={() => setShowAddProject(false)}
@@ -585,6 +726,19 @@ export default function FabShopTracker() {
 
         <div className="bg-white rounded-xl shadow-md overflow-hidden mb-6">
           <div className="flex border-b">
+            <button
+              onClick={() => setActiveTab('queue')}
+              className={`flex-1 px-6 py-4 font-semibold transition-all ${
+                activeTab === 'queue' 
+                  ? 'bg-orange-600 border-b-4 border-orange-600 text-white' 
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Clipboard size={20} />
+                Unassigned Queue ({stats.unassigned})
+              </div>
+            </button>
             <button
               onClick={() => setActiveTab('active')}
               className={`flex-1 px-6 py-4 font-semibold transition-all ${
@@ -674,12 +828,14 @@ export default function FabShopTracker() {
                           const dayProjects = projects.filter(p => 
                             p.assigned_to === fab.name && 
                             p.status !== 'Completed' &&
-                            new Date(p.deadline).toDateString() === day.toDateString()
+                            isProjectOnDay(p, day)
                           )
                           return (
                             <td key={day.toISOString()} className="border p-2 align-top">
                               {dayProjects.map(proj => {
                                 const urgency = getProjectUrgency(proj)
+                                const isStart = new Date(proj.start_date).toDateString() === day.toDateString()
+                                const isEnd = new Date(proj.deadline).toDateString() === day.toDateString()
                                 return (
                                   <div 
                                     key={proj.id} 
@@ -691,7 +847,9 @@ export default function FabShopTracker() {
                                     }`}
                                     onClick={() => toggleExpanded(proj.id)}
                                   >
-                                    <div className="font-semibold truncate">{proj.project_name}</div>
+                                    <div className="font-semibold truncate">
+                                      {isStart && '▶ '}{proj.project_name}{isEnd && ' ◀'}
+                                    </div>
                                     <div className="text-gray-600 mt-1">{proj.hours_allocated - proj.hours_used}h left</div>
                                   </div>
                                 )
@@ -716,7 +874,7 @@ export default function FabShopTracker() {
           </div>
         )}
 
-        {(activeTab === 'active' || activeTab === 'completed') && (
+        {(activeTab === 'queue' || activeTab === 'active' || activeTab === 'completed') && (
           <div className="space-y-4">
             {displayProjects.map(project => {
               const daysLeft = getDaysUntilDeadline(project.deadline)
@@ -724,9 +882,11 @@ export default function FabShopTracker() {
               const hoursRemaining = project.hours_allocated - project.hours_used
               const isOverBudget = project.hours_used > project.hours_allocated
               const urgency = getProjectUrgency(project)
+              const duration = Math.ceil((new Date(project.deadline) - new Date(project.start_date)) / (1000 * 60 * 60 * 24)) + 1
               
               return (
                 <div key={project.id} className={`bg-white rounded-xl shadow-md overflow-hidden transition-all hover:shadow-lg ${
+                  activeTab === 'queue' ? 'border-l-4 border-orange-500' :
                   urgency === 'overdue' ? 'border-l-4 border-red-500' :
                   urgency === 'critical' ? 'border-l-4 border-orange-500' :
                   urgency === 'urgent' ? 'border-l-4 border-yellow-500' :
@@ -741,9 +901,15 @@ export default function FabShopTracker() {
                           {project.customer_name && (
                             <span className="text-sm text-gray-500">• {project.customer_name}</span>
                           )}
-                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(project.status)}`}>
-                            {project.status}
-                          </span>
+                          {activeTab === 'queue' ? (
+                            <span className="px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700">
+                              Awaiting Assignment
+                            </span>
+                          ) : (
+                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(project.status)}`}>
+                              {project.status}
+                            </span>
+                          )}
                           <span className={`font-semibold ${getPriorityColor(project.priority)}`}>
                             {project.priority}
                           </span>
@@ -758,6 +924,10 @@ export default function FabShopTracker() {
                             <User size={16} />
                             {project.assigned_to}
                           </span>
+                          <span className="flex items-center gap-1">
+                            <Calendar size={16} />
+                            {new Date(project.start_date).toLocaleDateString()} - {new Date(project.deadline).toLocaleDateString()} ({duration} day{duration > 1 ? 's' : ''})
+                          </span>
                           {project.status === 'Completed' && project.completed_at ? (
                             <span className="flex items-center gap-1 text-green-600">
                               <CheckCircle size={16} />
@@ -769,7 +939,6 @@ export default function FabShopTracker() {
                               {daysLeft >= 0 ? `${daysLeft} days left` : `${Math.abs(daysLeft)} days overdue`}
                             </span>
                           )}
-                          <span>Due: {new Date(project.deadline).toLocaleDateString()}</span>
                         </div>
                       </div>
                       <button
@@ -780,65 +949,145 @@ export default function FabShopTracker() {
                       </button>
                     </div>
 
-                    <div className="mb-4">
-                      <div className="flex justify-between text-sm text-gray-600 mb-1">
-                        <span>Progress: {project.progress_percent}%</span>
-                        <span className={isOverBudget ? 'text-red-600 font-semibold' : ''}>
-                          {project.hours_used} / {project.hours_allocated} hours
-                          {isOverBudget && ' (Over budget!)'}
-                        </span>
+                    {activeTab !== 'queue' && (
+                      <div className="mb-4">
+                        <div className="flex justify-between text-sm text-gray-600 mb-1">
+                          <span>Progress: {project.progress_percent}%</span>
+                          <span className={isOverBudget ? 'text-red-600 font-semibold' : ''}>
+                            {project.hours_used} / {project.hours_allocated} hours
+                            {isOverBudget && ' (Over budget!)'}
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-3">
+                          <div
+                            className="h-3 rounded-full transition-all"
+                            style={{ 
+                              width: `${Math.min(project.progress_percent, 100)}%`,
+                              backgroundColor: project.status === 'Completed' ? '#10b981' : isOverBudget ? '#ef4444' : '#2b388f'
+                            }}
+                          />
+                        </div>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-3">
-                        <div
-                          className="h-3 rounded-full transition-all"
-                          style={{ 
-                            width: `${Math.min(project.progress_percent, 100)}%`,
-                            backgroundColor: project.status === 'Completed' ? '#10b981' : isOverBudget ? '#ef4444' : '#2b388f'
-                          }}
-                        />
-                      </div>
-                    </div>
+                    )}
 
                     {isExpanded && (
                       <div className="border-t pt-4 mt-4">
-                        {view === 'manager' && project.status !== 'Completed' ? (
-                          <div className="grid grid-cols-2 gap-4 mb-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Hours Used
-                              </label>
-                              <input
-                                type="number"
-                                value={project.hours_used}
-                                onChange={(e) => updateProject(project.id, { hours_used: parseInt(e.target.value) || 0 })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Progress %
-                              </label>
-                              <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                value={project.progress_percent}
-                                onChange={(e) => updateProject(project.id, { progress_percent: parseInt(e.target.value) || 0 })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
-                              />
-                            </div>
-                            <div className="col-span-2">
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Notes
-                              </label>
-                              <textarea
-                                value={project.notes || ''}
-                                onChange={(e) => updateProject(project.id, { notes: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
-                                rows="2"
-                              />
+                        {/* Attachments Section */}
+                        {project.attachments && project.attachments.length > 0 && (
+                          <div className="mb-4">
+                            <h4 className="font-semibold text-gray-900 mb-2">Attachments</h4>
+                            <div className="grid grid-cols-2 gap-2">
+                              {project.attachments.map((file, idx) => (
+                                <a
+                                  key={idx}
+                                  href={file.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                                >
+                                  <FileText size={20} className="text-gray-600" />
+                                  <span className="text-sm font-medium truncate">{file.name}</span>
+                                  <Download size={16} className="text-gray-400 ml-auto" />
+                                </a>
+                              ))}
                             </div>
                           </div>
+                        )}
+
+                        {view === 'manager' ? (
+                          <>
+                            {activeTab === 'queue' ? (
+                              <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Assign to Fabricator
+                                </label>
+                                <div className="flex gap-2">
+                                  <select
+                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                                    defaultValue=""
+                                    onChange={(e) => {
+                                      if (e.target.value) {
+                                        assignProject(project.id, e.target.value)
+                                      }
+                                    }}
+                                  >
+                                    <option value="">Select fabricator...</option>
+                                    {fabricators.map(fab => (
+                                      <option key={fab.id} value={fab.name}>{fab.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            ) : project.status !== 'Completed' && (
+                              <>
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                      Reassign to
+                                    </label>
+                                    <select
+                                      value={project.assigned_to}
+                                      onChange={(e) => updateProject(project.id, { assigned_to: e.target.value })}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                                    >
+                                      {fabricators.map(fab => (
+                                        <option key={fab.id} value={fab.name}>{fab.name}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                      Hours Used
+                                    </label>
+                                    <input
+                                      type="number"
+                                      value={project.hours_used}
+                                      onChange={(e) => updateProject(project.id, { hours_used: parseInt(e.target.value) || 0 })}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                      Progress %
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      value={project.progress_percent}
+                                      onChange={(e) => updateProject(project.id, { progress_percent: parseInt(e.target.value) || 0 })}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                      Status
+                                    </label>
+                                    <select
+                                      value={project.status}
+                                      onChange={(e) => updateProject(project.id, { status: e.target.value })}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                                    >
+                                      <option value="Not Started">Not Started</option>
+                                      <option value="In Progress">In Progress</option>
+                                      <option value="Completed">Completed</option>
+                                    </select>
+                                  </div>
+                                  <div className="col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                      Notes
+                                    </label>
+                                    <textarea
+                                      value={project.notes || ''}
+                                      onChange={(e) => updateProject(project.id, { notes: e.target.value })}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                                      rows="2"
+                                    />
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </>
                         ) : (
                           <div className="mb-4">
                             {project.notes && (
@@ -846,7 +1095,7 @@ export default function FabShopTracker() {
                                 <p className="text-sm text-gray-700"><strong>Notes:</strong> {project.notes}</p>
                               </div>
                             )}
-                            {project.status !== 'Completed' && (
+                            {project.status !== 'Completed' && activeTab !== 'queue' && (
                               <div className="flex items-center gap-3 text-sm text-gray-600">
                                 <AlertCircle size={16} />
                                 <span>Hours remaining: {hoursRemaining}h</span>
@@ -856,7 +1105,7 @@ export default function FabShopTracker() {
                         )}
 
                         <div className="flex gap-3">
-                          {project.status !== 'Completed' && (
+                          {project.status !== 'Completed' && activeTab !== 'queue' && (
                             <button
                               onClick={() => markComplete(project.id)}
                               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all"
@@ -875,10 +1124,12 @@ export default function FabShopTracker() {
           </div>
         )}
 
-        {displayProjects.length === 0 && (activeTab === 'active' || activeTab === 'completed') && (
+        {displayProjects.length === 0 && activeTab !== 'calendar' && (
           <div className="bg-white rounded-xl shadow-md p-12 text-center">
             <p className="text-gray-500 text-lg">
-              {activeTab === 'active' ? 'No active projects found' : 'No completed projects yet'}
+              {activeTab === 'queue' ? 'No unassigned projects' :
+               activeTab === 'active' ? 'No active projects found' : 
+               'No completed projects yet'}
             </p>
           </div>
         )}

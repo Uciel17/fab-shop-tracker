@@ -29,11 +29,19 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6 text-center">
-          Fab Shop Tracker
-        </h1>
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md border-t-4" style={{ borderColor: '#2b388f' }}>
+        <div className="text-center mb-8">
+          <img 
+            src="https://i.postimg.cc/CLy9X6kD/panelclad-logo.png" 
+            alt="PanelClad Logo" 
+            className="h-24 w-auto mx-auto mb-4"
+          />
+          <h1 className="text-3xl font-bold mb-2" style={{ color: '#1e1e21' }}>
+            Fab Shop Tracker
+          </h1>
+          <p className="text-gray-600">PanelClad Project Management</p>
+        </div>
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -44,7 +52,8 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:border-transparent focus:outline-none transition-all"
+              style={{ focusRingColor: '#2b388f' }}
               placeholder="your@email.com"
             />
           </div>
@@ -57,23 +66,27 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:border-transparent focus:outline-none transition-all"
               placeholder="••••••••"
             />
           </div>
           {error && (
-            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">
+            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm border border-red-200">
               {error}
             </div>
           )}
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400"
+            className="w-full text-white py-3 rounded-lg font-semibold hover:opacity-90 transition-all disabled:bg-gray-400 shadow-md"
+            style={{ backgroundColor: '#2b388f' }}
           >
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
+        <div className="mt-6 text-center text-sm text-gray-500">
+          <p>Contact your manager for login credentials</p>
+        </div>
       </div>
     </div>
   )

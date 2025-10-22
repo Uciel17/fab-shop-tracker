@@ -291,8 +291,8 @@ export default function FabShopTracker() {
   })
 
   const upNextProjects = sortedActive.slice(0, 3)
-
   const displayProjects = activeTab === 'active' ? sortedActive : sortedCompleted
+  const weekDays = getWeekDays(currentWeekStart)
 
   const stats = {
     active: activeProjects.length,
@@ -306,17 +306,14 @@ export default function FabShopTracker() {
     }).length
   }
 
-  const weekDays = getWeekDays(currentWeekStart)
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <div className="max-w-7xl mx-auto p-6">
-        {/* Header with Logo */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-6 border-t-4" style={{ borderColor: '#2b388f' }}>
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-4">
               <img 
-                src="https://i.postimg.cc/CLy9X6kD/panelclad-logo.png" 
+                src="https://gfevpvqpaujhorgbjmll.supabase.co/storage/v1/object/public/assets/panelclad_02@3x.png" 
                 alt="PanelClad Logo" 
                 className="h-16 w-auto"
               />
@@ -366,7 +363,6 @@ export default function FabShopTracker() {
             </div>
           </div>
 
-          {/* Stats Bar */}
           <div className="grid grid-cols-4 gap-4 mt-6">
             <div className="bg-blue-50 rounded-lg p-4 border-l-4" style={{ borderColor: '#2b388f' }}>
               <div className="flex items-center justify-between">
@@ -406,7 +402,6 @@ export default function FabShopTracker() {
             </div>
           </div>
 
-          {/* Filters */}
           <div className="flex items-center gap-4 mt-6">
             <User size={20} className="text-gray-500" />
             <select
@@ -422,7 +417,6 @@ export default function FabShopTracker() {
           </div>
         </div>
 
-        {/* Fabricator Settings Modal */}
         {showFabSettings && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
@@ -466,7 +460,6 @@ export default function FabShopTracker() {
           </div>
         )}
 
-        {/* Up Next Section */}
         {activeTab === 'active' && upNextProjects.length > 0 && (
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl shadow-md p-6 mb-6 border-l-4" style={{ borderColor: '#2b388f' }}>
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: '#2b388f' }}>
@@ -503,7 +496,6 @@ export default function FabShopTracker() {
           </div>
         )}
 
-        {/* Add Project Form */}
         {showAddProject && view === 'manager' && (
           <div className="bg-white rounded-xl shadow-md p-6 mb-6">
             <h2 className="text-xl font-bold mb-4" style={{ color: '#2b388f' }}>New Project</h2>
@@ -591,7 +583,6 @@ export default function FabShopTracker() {
           </div>
         )}
 
-        {/* Tabs */}
         <div className="bg-white rounded-xl shadow-md overflow-hidden mb-6">
           <div className="flex border-b">
             <button
@@ -629,7 +620,6 @@ export default function FabShopTracker() {
           </div>
         </div>
 
-        {/* Calendar View */}
         {activeTab === 'calendar' && (
           <div className="bg-white rounded-xl shadow-md p-6">
             <div className="flex justify-between items-center mb-6">
@@ -679,4 +669,220 @@ export default function FabShopTracker() {
                     const workload = getFabricatorWorkload(fab.name, currentWeekStart)
                     return (
                       <tr key={fab.id}>
-                        <td className="border p-3 font-semibold sticky left-
+                        <td className="border p-3 font-semibold sticky left-0 bg-white z-10">{fab.name}</td>
+                        {weekDays.map(day => {
+                          const dayProjects = projects.filter(p => 
+                            p.assigned_to === fab.name && 
+                            p.status !== 'Completed' &&
+                            new Date(p.deadline).toDateString() === day.toDateString()
+                          )
+                          return (
+                            <td key={day.toISOString()} className="border p-2 align-top">
+                              {dayProjects.map(proj => {
+                                const urgency = getProjectUrgency(proj)
+                                return (
+                                  <div 
+                                    key={proj.id} 
+                                    className={`mb-2 p-2 rounded text-xs cursor-pointer hover:shadow-md transition-shadow ${
+                                      urgency === 'overdue' ? 'bg-red-100 border-l-2 border-red-500' :
+                                      urgency === 'critical' ? 'bg-orange-100 border-l-2 border-orange-500' :
+                                      urgency === 'urgent' ? 'bg-yellow-100 border-l-2 border-yellow-500' :
+                                      'bg-blue-50 border-l-2 border-blue-500'
+                                    }`}
+                                    onClick={() => toggleExpanded(proj.id)}
+                                  >
+                                    <div className="font-semibold truncate">{proj.project_name}</div>
+                                    <div className="text-gray-600 mt-1">{proj.hours_allocated - proj.hours_used}h left</div>
+                                  </div>
+                                )
+                              })}
+                            </td>
+                          )
+                        })}
+                        <td className="border p-3 text-center">
+                          <div className="font-bold text-lg" style={{ color: workload.hours > 40 ? '#ef4444' : '#2b388f' }}>
+                            {workload.hours}h
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            {workload.projects.length} projects
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {(activeTab === 'active' || activeTab === 'completed') && (
+          <div className="space-y-4">
+            {displayProjects.map(project => {
+              const daysLeft = getDaysUntilDeadline(project.deadline)
+              const isExpanded = expandedProjects.has(project.id)
+              const hoursRemaining = project.hours_allocated - project.hours_used
+              const isOverBudget = project.hours_used > project.hours_allocated
+              const urgency = getProjectUrgency(project)
+              
+              return (
+                <div key={project.id} className={`bg-white rounded-xl shadow-md overflow-hidden transition-all hover:shadow-lg ${
+                  urgency === 'overdue' ? 'border-l-4 border-red-500' :
+                  urgency === 'critical' ? 'border-l-4 border-orange-500' :
+                  urgency === 'urgent' ? 'border-l-4 border-yellow-500' :
+                  urgency === 'completed' ? 'border-l-4 border-green-500' :
+                  'border-l-4 border-blue-200'
+                }`}>
+                  <div className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-xl font-bold" style={{ color: '#1e1e21' }}>{project.project_name}</h3>
+                          {project.customer_name && (
+                            <span className="text-sm text-gray-500">• {project.customer_name}</span>
+                          )}
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(project.status)}`}>
+                            {project.status}
+                          </span>
+                          <span className={`font-semibold ${getPriorityColor(project.priority)}`}>
+                            {project.priority}
+                          </span>
+                          {project.project_type && (
+                            <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                              {project.project_type}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-gray-600">
+                          <span className="flex items-center gap-1">
+                            <User size={16} />
+                            {project.assigned_to}
+                          </span>
+                          {project.status === 'Completed' && project.completed_at ? (
+                            <span className="flex items-center gap-1 text-green-600">
+                              <CheckCircle size={16} />
+                              Completed {new Date(project.completed_at).toLocaleDateString()}
+                            </span>
+                          ) : (
+                            <span className={`flex items-center gap-1 ${daysLeft < 0 ? 'text-red-600 font-semibold' : ''}`}>
+                              <Clock size={16} />
+                              {daysLeft >= 0 ? `${daysLeft} days left` : `${Math.abs(daysLeft)} days overdue`}
+                            </span>
+                          )}
+                          <span>Due: {new Date(project.deadline).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => toggleExpanded(project.id)}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                      </button>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="flex justify-between text-sm text-gray-600 mb-1">
+                        <span>Progress: {project.progress_percent}%</span>
+                        <span className={isOverBudget ? 'text-red-600 font-semibold' : ''}>
+                          {project.hours_used} / {project.hours_allocated} hours
+                          {isOverBudget && ' (Over budget!)'}
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-3">
+                        <div
+                          className="h-3 rounded-full transition-all"
+                          style={{ 
+                            width: `${Math.min(project.progress_percent, 100)}%`,
+                            backgroundColor: project.status === 'Completed' ? '#10b981' : isOverBudget ? '#ef4444' : '#2b388f'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="border-t pt-4 mt-4">
+                        {view === 'manager' && project.status !== 'Completed' ? (
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Hours Used
+                              </label>
+                              <input
+                                type="number"
+                                value={project.hours_used}
+                                onChange={(e) => updateProject(project.id, { hours_used: parseInt(e.target.value) || 0 })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Progress %
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={project.progress_percent}
+                                onChange={(e) => updateProject(project.id, { progress_percent: parseInt(e.target.value) || 0 })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Notes
+                              </label>
+                              <textarea
+                                value={project.notes || ''}
+                                onChange={(e) => updateProject(project.id, { notes: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:outline-none"
+                                rows="2"
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mb-4">
+                            {project.notes && (
+                              <div className="mb-3 p-3 bg-yellow-50 rounded-lg">
+                                <p className="text-sm text-gray-700"><strong>Notes:</strong> {project.notes}</p>
+                              </div>
+                            )}
+                            {project.status !== 'Completed' && (
+                              <div className="flex items-center gap-3 text-sm text-gray-600">
+                                <AlertCircle size={16} />
+                                <span>Hours remaining: {hoursRemaining}h</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex gap-3">
+                          {project.status !== 'Completed' && (
+                            <button
+                              onClick={() => markComplete(project.id)}
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all"
+                            >
+                              <Check size={18} />
+                              Mark Complete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {displayProjects.length === 0 && (activeTab === 'active' || activeTab === 'completed') && (
+          <div className="bg-white rounded-xl shadow-md p-12 text-center">
+            <p className="text-gray-500 text-lg">
+              {activeTab === 'active' ? 'No active projects found' : 'No completed projects yet'}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -33,10 +33,17 @@ export default function Login() {
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md border-t-4" style={{ borderColor: '#2b388f' }}>
         <div className="text-center mb-8">
           <img 
-            src="https://i.postimg.cc/CLy9X6kD/panelclad-logo.png" 
+            src="https://gfevpvqpaujhorgbjmll.supabase.co/storage/v1/object/public/assets/panelclad_02@3x.png" 
             alt="PanelClad Logo" 
-            className="h-24 w-auto mx-auto mb-4"
+            className="h-32 w-auto mx-auto mb-4"
+            onError={(e) => {
+              e.target.style.display = 'none'
+              e.target.nextElementSibling.style.display = 'flex'
+            }}
           />
+          <div className="hidden w-24 h-24 mx-auto mb-4 rounded-lg items-center justify-center" style={{ backgroundColor: '#2b388f' }}>
+            <span className="text-white text-4xl font-bold">PC</span>
+          </div>
           <h1 className="text-3xl font-bold mb-2" style={{ color: '#1e1e21' }}>
             Fab Shop Tracker
           </h1>
